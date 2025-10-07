@@ -13,33 +13,38 @@ Return (Gff, Gfc) block matrices for nodal analysis.
 - `fixed_nodes`: vector of fixed node indices
 """
 function build_blocks(branches, free_nodes, fixed_nodes)
+
+    @warn "Note that connection between fixed nodes are ignored!"
+
     nfree = length(free_nodes)
     nfixed = length(fixed_nodes) 
 
     # Map node index -> position in block
-    free_pos = Dict(free_nodes[i] => i for i in 1:nfree)
-    fixed_pos = Dict(fixed_nodes[i] => i for i in 1:nfixed)
+    free_pos = Dict(free_nodes[i] => i for i in 1:nfree) # row positions of nodes (free) in ascending order
+    fixed_pos = Dict(fixed_nodes[i] => i for i in 1:nfixed) # column positions of nodes (fixed) in ascending order
 
+    # Block matrix (G) initialization
     Gff = zeros(Float64, nfree, nfree)
     Gfc = zeros(Float64, nfree, nfixed)
 
     for (i, j, g) in branches
-        # Case 1: both free
+        # Case 1: check both nodes are free
         if haskey(free_pos, i) && haskey(free_pos, j)
             pi, pj = free_pos[i], free_pos[j]
+            Gff[pi, pi] += g # diagonal entry of Gff sub-block matrix 
+            Gff[pj, pj] += g  
+            Gff[pi, pj] = -g # off-diagonal
+            Gff[pj, pi] = -g 
+        # Case 2: check free–fixed connections
+        elseif haskey(free_pos, i) && haskey(fixed_pos, j) # free i connected fixed j by pipe
+            pi, pj = free_pos[i], fixed_pos[j] # position in the G matrix
             Gff[pi, pi] += g
-            Gff[pj, pj] += g
-            Gff[pi, pj] -= g
-            Gff[pj, pi] -= g
-        # Case 2: free–fixed
-        elseif haskey(free_pos, i) && haskey(fixed_pos, j)
-            pi, pj = free_pos[i], fixed_pos[j]
-            Gff[pi, pi] += g
-            Gfc[pi, pj] -= g
-        elseif haskey(free_pos, j) && haskey(fixed_pos, i)
-            pj, pi = free_pos[j], fixed_pos[i] 
-            Gff[pj, pj] += g
-            Gfc[pj, pi] -= g
+            Gfc[pi, pj] = -g
+        elseif haskey(free_pos, j) && haskey(fixed_pos, i) # free j connected fixed i by pipe
+            pj, pi = free_pos[j], fixed_pos[i] # position in the G matrix
+            Gff[pj, pj] += g 
+            Gfc[pj, pi] = -g 
+        # Case 3: both nodes are fixed (IGNORED)
         end
     end
 
@@ -53,10 +58,10 @@ Solve for free node voltages: Vf = Gff / (If - Gfc * Vc)
 - `Gff`: block matrix for free-free nodes
 - `Gfc`: block matrix for free-fixed nodes
 - `Vc`: vector of fixed node voltages
-- `If`: vector of current injections at free nodes
+- `If`: vector of total current at free nodes
 """
 function solve_free(Gff, Gfc, Vc, If)
-    return Gff \ (If - Gfc * Vc)
+    return Gff \ (If - Gfc * Vc) # Gff^-1 * (If - Gfc * Vc)
 end
 
 # LOCAL LEARNING ALGORITHM
@@ -144,7 +149,7 @@ Perform a single training step consisting of free and clamped phases, conductanc
 - `free_nodes`: vector of free node indices
 - `fixed_nodes`: vector of fixed node indices
 - `Vc`: vector of fixed node voltages
-- `If`: vector of current injections at free nodes
+- `If`: vector of total current at free nodes
 - `target_nodes`: vector of target node indices to be clamped
 - `target_values`: vector of target voltages for the target nodes
 - `α`: learning rate (default 5e-4)

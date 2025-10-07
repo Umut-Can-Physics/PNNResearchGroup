@@ -22,6 +22,7 @@ branches = [
 free_nodes  = [2, 3, 4, 5]
 fixed_nodes = [1, 6]
 Gff, Gfc = build_blocks(branches, free_nodes, fixed_nodes)
+
 Vc = [5.0, 0.0]
 If = zeros(number_of_free_nodes)
 Vf = solve_free(Gff, Gfc, Vc, If)
