@@ -14,7 +14,7 @@ Return (Gff, Gfc) block matrices for nodal analysis.
 """
 function build_blocks(branches, free_nodes, fixed_nodes)
 
-    @warn "Note that connection between fixed nodes are ignored!"
+    #@warn "Note that connection between fixed nodes are ignored!"
 
     nfree = length(free_nodes)
     nfixed = length(fixed_nodes) 
@@ -111,6 +111,9 @@ Perform the clamped phase solution.
 function solve_clamped(branches, free_nodes, fixed_nodes, Vc, Vf, target_nodes, target_values, η)
     Vfree = full_voltage(free_nodes, fixed_nodes, Vf, Vc) # Voltages in free phase
     VtC   = [Vfree[n] + η*(pt - Vfree[n]) for (n,pt) in zip(target_nodes, target_values)] # Equation (3)
+    for (n,pt) in zip(target_nodes, target_values)
+        #println("Target node $n: free voltage = $(Vfree[n]), target voltage = $pt, clamped voltage = ", Vfree[n] ,"+", η ,"*", (pt ,"-", Vfree[n]),"=", Vfree[n] + η*(pt - Vfree[n]))
+    end
   
     free2  = [n for n in free_nodes if !(n in target_nodes)] # remaining free nodes after clamping
     fixed2 = vcat(fixed_nodes, target_nodes) # set target nodes as temporary fixed nodes (add targets to fixed nodes)
@@ -137,9 +140,10 @@ function update_conductances!(branches, ΔVF, ΔVC; α=5e-4, η=1e-3, kmin=1e-6)
     for n in eachindex(branches) 
         i, j, g = branches[n] 
         Δg = (α/(2η)) * ((ΔVF[n]^2) - (ΔVC[n]^2)) # Equation (4)
-        gnew = max(g + Δg, kmin) # gnew can't be negative
+        gnew = g + Δg # gnew can't be negative
         branches[n] = (i, j, gnew)
     end
+    #println("Updated conductances: ", branches)
 end
 
 """
@@ -156,28 +160,42 @@ Perform a single training step consisting of free and clamped phases, conductanc
 - `η`: clamping strength (default 1e-3)
 """
 function train_step!(branches, free_nodes, fixed_nodes, Vc, If, target_nodes, target_values; α=5e-4, η=1e-3)
+
+    #println("START OF THE STEP \n")
+
     # Free phase solution
     Gff, Gfc = build_blocks(branches, free_nodes, fixed_nodes)
     Vf = solve_free(Gff, Gfc, Vc, If)
     Vfree = full_voltage(free_nodes, fixed_nodes, Vf, Vc)
 
+    #println("Full voltages at free phase: ", Vfree)
+
     # Clamped phase solution
     Vclamped = solve_clamped(branches, free_nodes, fixed_nodes, Vc, Vf, target_nodes, target_values, η)
+
+    println("Full voltages at clamped phase: ", Vclamped)
 
     #differences (approximately equals back-propagation)
     ΔVF = branch_dV(branches, Vfree) # voltage difference in free phase
     ΔVC = branch_dV(branches, Vclamped) # voltage difference in clamped phase
+
+    #println("Voltage differences in free phase: ", ΔVF)
+    #println("Voltage differences in clamped phase: ", ΔVC)
 
     # Update the conductances
     update_conductances!(branches, ΔVF, ΔVC; α=α, η=η)
 
     # Cost function
     C = 0.5 * sum((Vfree[n] - pt)^2 for (n, pt) in zip(target_nodes, target_values)) # Equation (1)
-    println("Voltages of the target nodes: ", [Vfree[n] for n in target_nodes], " | Cost: ", C)
+    #println("Voltages of the target nodes: ", [Vfree[n] for n in target_nodes], " | Cost: ", C)
 
     P_hist = [0.5 * sum(b[3]*(Δ^2) for (b,Δ) in zip(branches, ΔVF))] # Power dissipation 
 
-    return C, P_hist
+    gnew = [b[3] for b in branches]
+
+    #println("END OF THE STEP\n====================\n")
+
+    return C, P_hist, gnew
 end
 
 # In Progress: Visualization with GraphMakie

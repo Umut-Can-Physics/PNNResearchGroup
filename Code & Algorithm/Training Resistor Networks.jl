@@ -2,43 +2,42 @@ include("Scripts.jl")
 using Revise
 using Plots, LaTeXStrings, Graphs, GraphMakie
 
-number_of_free_nodes = 4
+number_of_free_nodes = 1
 
-# (i, j, g_ij) for branch between symmetric nodes i and j with conductance g_ij
+# 1. Free Phase (y=ax)
 branches = [
-    (1, 2, only(rand(1))),
-    
-    (2, 3, only(rand(1))),
-    (2, 4, only(rand(1))),
-    (2, 5, only(rand(1))),
-
-    (3, 4, only(rand(1))),
-    (3, 6, only(rand(1))),
-
-    (4, 6, only(rand(1))),
-
-    (5, 4, only(rand(1))),
-    (5, 6, only(rand(1)))
+    (1, 2, 2.0),
+    (2, 3, 3.0)
 ]
 
-free_nodes  = [2, 3, 4, 5]
-fixed_nodes = [1, 6]
-Vc = [5.0, 0.0] # fixed node voltages (boundary conditions)
+free_nodes  = [2]
+fixed_nodes = [1, 3]
+Vc = [2.0, 3.0] # fixed node voltages (boundary conditions)
 If = zeros(number_of_free_nodes) # KCL rule at free nodes
 
-target_nodes = [3, 5] # nodes to be clamped
-target_values = [3.0, 1.0] # target voltages
+target_nodes = [2] # nodes to be clamped
+target_values = [2.5] # target voltages
 
 # Training loop
 CostList = Float64[]
 g_hist = []
 p_hist = []
-for step in 1:5000
-    C, P_hist = train_step!(branches, free_nodes, fixed_nodes, Vc, If, target_nodes, target_values; α=5e-4, η=1e-3)
+gnew = [0,0]
+for step in 1:1000
+
+    C, P_hist, gnew = train_step!(branches, free_nodes, fixed_nodes, Vc, If, target_nodes, target_values; α=5*10e-3, η=1e-2)    
+    if findall(x->x<0, gnew) != []
+        @warn "Conductance went negative!"
+        #break
+    end
+
     push!(CostList, C)
     push!(g_hist, [b[3] for b in branches])
     push!(p_hist, P_hist)
 end
+
+summ = gnew[1]+gnew[2]
+Vc[1]*gnew[1]/summ+Vc[2]*gnew[2]/summ
 
 plot(1:length(CostList), CostList, xlabel="Training step", ylabel="Cost", title="Training Resistor Network", label=L"C=\frac{1}{2}\sum_T (P_T^F - P_T)^2")
 savefig("Code & Algorithm/figures/Training_Resistor_Network_Cost.pdf")
