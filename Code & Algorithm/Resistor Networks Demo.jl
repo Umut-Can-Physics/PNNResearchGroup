@@ -2,7 +2,9 @@ using Revise
 include("Scripts.jl")
 
 
-# Example: 3 node
+###################
+# Example: 3 node #
+###################
 
 # nodes: 1(fixed), 2(free), 3(free), 4(fixed)
 branches = [
@@ -24,7 +26,9 @@ If = [0.0]
 # Solve for free voltages
 Vf = solve_free(Gff, Gfc, Vc, If)
 
-# More complex example in Resistor Networks.jl
+###############################################
+# More complex example in Resistor Networks.jl#
+###############################################
 
 number_of_free_nodes = 4
 
@@ -55,4 +59,27 @@ Vc = [5.0, 0.0]
 If = zeros(number_of_free_nodes)
 
 # Solve for free voltages
+Vf = solve_free(Gff, Gfc, Vc, If)
+
+###################
+# Another example #
+###################
+
+number_of_free_nodes = 2
+
+branches = [
+    (1, 2, 4.0),
+    (2, 3, 7.0),
+    (2, 4, 5.0),
+    (3, 4, 3.0),
+    (1, 4, 10.0),
+]
+free_nodes  = [2, 4]
+fixed_nodes = [1, 3]
+
+Gff, Gfc = build_blocks(branches, free_nodes, fixed_nodes)
+
+Vc = [5.0, 0.0]
+If = zeros(number_of_free_nodes)
+
 Vf = solve_free(Gff, Gfc, Vc, If)
