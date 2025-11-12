@@ -1,5 +1,6 @@
-using LinearAlgebra
 using Revise
+using LinearAlgebra
+using Statistics
 
 # FREE PHASE SOLUTION
 
@@ -14,8 +15,6 @@ Return (Gff, Gfc) block matrices for nodal analysis.
 """
 function build_blocks(branches, free_nodes, fixed_nodes)
 
-    #@warn "Note that connection between fixed nodes are ignored!"
-
     nfree = length(free_nodes)
     nfixed = length(fixed_nodes) 
 
@@ -26,6 +25,7 @@ function build_blocks(branches, free_nodes, fixed_nodes)
     # Block matrix (G) initialization
     Gff = zeros(Float64, nfree, nfree)
     Gfc = zeros(Float64, nfree, nfixed)
+    Gcc = zeros(Float64, nfixed, nfixed)
 
     for (i, j, g) in branches
         # Case 1: check both nodes are free
@@ -44,7 +44,13 @@ function build_blocks(branches, free_nodes, fixed_nodes)
             pj, pi = free_pos[j], fixed_pos[i] # position in the G matrix
             Gff[pj, pj] += g 
             Gfc[pj, pi] = -g 
-        # Case 3: both nodes are fixed (IGNORED)
+        # Case 3: both nodes are fixed
+        elseif haskey(fixed_pos, i) && haskey(fixed_pos, j)
+            pi, pj = fixed_pos[i], fixed_pos[j]
+            Gcc[pi, pi] += g
+            Gcc[pj, pj] += g
+            Gcc[pi, pj] = -g
+            Gcc[pj, pi] = -g
         end
     end
 
@@ -60,7 +66,8 @@ Solve for free node voltages: Vf = Gff / (If - Gfc * Vc)
 - `Vc`: vector of fixed node voltages
 - `If`: vector of total current at free nodes
 """
-function solve_free(Gff, Gfc, Vc, If)
+function solve_free(branches, free_nodes, fixed_nodes, Vc, If)
+    Gff, Gfc  = build_blocks(branches, free_nodes, fixed_nodes)
     return Gff \ (If - Gfc * Vc) # Gff^-1 * (If - Gfc * Vc)
 end
 
@@ -83,7 +90,7 @@ function full_voltage(free_nodes, fixed_nodes, Vf, Vc)
     for (n,v) in zip(fixed_nodes, Vc); V[n] = v; end
     return V
 end
-
+# Neden sadece free ve fixed node'ları alıyor? Hidden node'ların voltaj farkları zaten free node'ların içinde mi?
 """
     branch_dV(branches, V)
 Compute voltage differences across branches.
@@ -94,6 +101,12 @@ Returns a vector of voltage differences corresponding to each branch in `branche
 - `V`: Dict{Int,Float64} mapping node index to voltage
 """
 branch_dV(branches, V) = [V[i] - V[j] for (i,j,_) in branches] # Local voltage differences across branches (Main idea of the algorithm)
+
+function branch_dV(branches, V)
+    for (i, j, _) in branches
+        
+    end
+end
 
 """
     solve_clamped(branches, free_nodes, fixed_nodes, Vc, Vf, target_nodes, target_values, η)
@@ -109,10 +122,10 @@ Perform the clamped phase solution.
 - `η`: clamping strength
 """
 function solve_clamped(branches, free_nodes, fixed_nodes, Vc, Vf, target_nodes, target_values, η)
-    Vfree = full_voltage(free_nodes, fixed_nodes, Vf, Vc) # Voltages in free phase
+    Vfree = full_voltage(free_nodes, fixed_nodes, Vf, Vc) # Get voltages in free phase
     VtC   = [Vfree[n] + η*(pt - Vfree[n]) for (n,pt) in zip(target_nodes, target_values)] # Equation (3)
     for (n,pt) in zip(target_nodes, target_values)
-        #println("Target node $n: free voltage = $(Vfree[n]), target voltage = $pt, clamped voltage = ", Vfree[n] ,"+", η ,"*", (pt ,"-", Vfree[n]),"=", Vfree[n] + η*(pt - Vfree[n]))
+        println("Target value for node ", n, " is ", pt, "and voltage in free phase: ", Vfree[n], " | Clamped voltage: ", Vfree[n] + η*(pt - Vfree[n]))
     end
   
     free2  = [n for n in free_nodes if !(n in target_nodes)] # remaining free nodes after clamping
@@ -120,9 +133,9 @@ function solve_clamped(branches, free_nodes, fixed_nodes, Vc, Vf, target_nodes, 
     Vc2    = vcat(Vc, VtC) # add fixed node voltages
 
     # solve for new free node voltages
-    Gff2, Gfc2 = build_blocks(branches, free2, fixed2) # build new block matrices
+    # build new block matrices
     If2 = zeros(length(free2))
-    Vf2 = solve_free(Gff2, Gfc2, Vc2, If2)
+    Vf2 = solve_free(branches, free2, fixed2, Vc2, If2)
 
     return full_voltage(free2, fixed2, Vf2, Vc2) # solved voltages in clamped phase
 end
@@ -159,21 +172,18 @@ Perform a single training step consisting of free and clamped phases, conductanc
 - `α`: learning rate (default 5e-4)
 - `η`: clamping strength (default 1e-3)
 """
-function train_step!(branches, free_nodes, fixed_nodes, Vc, If, target_nodes, target_values; α=5e-4, η=1e-3)
-
-    #println("START OF THE STEP \n")
+function train_step!(branches, free_nodes, fixed_nodes, Vc, If, target_nodes, target_values; α, η)
 
     # Free phase solution
-    Gff, Gfc = build_blocks(branches, free_nodes, fixed_nodes)
-    Vf = solve_free(Gff, Gfc, Vc, If)
+    Vf = solve_free(branches, free_nodes, fixed_nodes, Vc, If)
     Vfree = full_voltage(free_nodes, fixed_nodes, Vf, Vc)
 
-    #println("Full voltages at free phase: ", Vfree)
+    println("\n Step 1: FREE PHASE \n")
+    println("Free voltages at free phase are solved: ", Vfree, "for a given boundary conditions Vc: ", Vc, "and initial conductances: ", [b[3] for b in branches])
 
+    println("\n Step 2: CLAMPED PHASE \n")
     # Clamped phase solution
     Vclamped = solve_clamped(branches, free_nodes, fixed_nodes, Vc, Vf, target_nodes, target_values, η)
-
-    println("Full voltages at clamped phase: ", Vclamped)
 
     #differences (approximately equals back-propagation)
     ΔVF = branch_dV(branches, Vfree) # voltage difference in free phase
@@ -183,7 +193,7 @@ function train_step!(branches, free_nodes, fixed_nodes, Vc, If, target_nodes, ta
     #println("Voltage differences in clamped phase: ", ΔVC)
 
     # Update the conductances
-    update_conductances!(branches, ΔVF, ΔVC; α=α, η=η)
+    update_conductances!(branches, ΔVF, ΔVC; α, η)
 
     # Cost function
     C = 0.5 * sum((Vfree[n] - pt)^2 for (n, pt) in zip(target_nodes, target_values)) # Equation (1)
@@ -191,9 +201,9 @@ function train_step!(branches, free_nodes, fixed_nodes, Vc, If, target_nodes, ta
 
     P_hist = [0.5 * sum(b[3]*(Δ^2) for (b,Δ) in zip(branches, ΔVF))] # Power dissipation 
 
-    gnew = [b[3] for b in branches]
-
     #println("END OF THE STEP\n====================\n")
+
+    gnew = [b[3] for b in branches] 
 
     return C, P_hist, gnew
 end
@@ -207,4 +217,95 @@ function plot_network(branches; title="Conductance network")
     fig, ax, plt = graphplot(G, node_labels=1:nv(G), edge_width=3 .* normalize(weights))
     ax.title = title
     display(fig)
+end
+
+"""
+Generate synthetic training data with optional noise and bias.
+- `slope`: Slope of the linear function
+- `σ`: Dtandard deviation of Gaussian noise
+- `bias`: Bias term added to the output 
+- `training_size`: Number of training samples
+"""
+function generate_training_data(slope, σ, bias, training_size)
+    noise_vector = randn(training_size) .* σ 
+    noise_vector = noise_vector .- mean(noise_vector)
+    x = range(start = 0, stop = 20, length = training_size)
+    y = sort(slope .* x) .+ noise_vector .+ bias
+    println("Standart Deviation of Data = ",std(noise_vector),"\n","Mean of the Noise = ", mean(noise_vector))
+    return x, y
+end
+
+function find_factors(n)
+    factors = []
+    for i in 1:n
+        if n % i == 0
+            push!(factors, i)
+        end
+    end
+    return factors
+end
+
+"""
+Generate synthetic training data for hyperplane fitting in multiple dimensions.
+- `σ`: Standard deviation of Gaussian noise
+- `training_size`: Number of training samples
+- `dim`: Number of input dimensions in the parameter space
+"""
+function generate_tensor_data(σ, training_size, dim)
+    # find multiple integers of training_size to reshape later
+    factors = find_factors(training_size)
+    selected_factor = factors[Int(ceil(length(factors)/2))] # choose the middle factor
+    reshaped_size = (selected_factor, div(training_size, selected_factor))
+
+    # random positive definite tensor with size (reshaped_size..., dim)
+    x_tensor = abs.(randn(reshaped_size..., dim))
+
+    # coefficients vector for linear combination
+    coefficients = abs.(randn(dim))
+
+    # noise vector
+    noise_vector = abs.(randn(dim) .* σ)
+
+    # generate output tensor as follows y = ∑ x * coefficients + noise
+    output = zeros(dim)
+    for i in 1:dim
+        y_tensor = x_tensor[:,:,i] .* coefficients[i] .+ noise_vector[i]
+        output[i] = sum(y_tensor)
+    end
+
+    return x_tensor, output
+end
+
+
+"""
+Generate a uniform triangular mesh using TriangleMesh.jl and plot it.
+"""
+function generate_uniform_mesh(area_max)
+    # uniform mesh (https://mathworld.wolfram.com/VoronoiDiagram.html)
+    poly = polygon_Lshape()
+    mesh = create_mesh(poly, info_str="my mesh", voronoi=true, delaunay=true, add_switches = "qa$(area_max)")
+
+    pts   = mesh.point      # 2 × n_point
+    cells = mesh.cell       # 3 × n_cell  (indices of vertices)
+
+    # Coordinates (note: rows, not columns)
+    x = pts[1, :]           # all x's
+    y = pts[2, :]           # all y's
+
+    P = plot(legend=false, aspect_ratio = :equal)
+
+    # iterate over columns of `cells`, each is a triangle (i, j, k)
+    for tri in eachcol(cells)
+        i, j, k = tri
+        plot!([x[i], x[j], x[k], x[i]],
+            [y[i], y[j], y[k], y[i]],
+            color = :gray)
+    end
+
+    # label the points according to their coordinates
+    #for (idx, (xi, yi)) in enumerate(zip(x, y))
+    #    annotate!(xi, yi, text("$(idx)", :left, 15))
+    #end
+
+    return P, x, y, cells, mesh
 end

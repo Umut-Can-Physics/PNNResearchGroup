@@ -15,16 +15,13 @@ branches = [
 free_nodes  = [2]
 fixed_nodes = [1, 3]
 
-# Build block matrices
-Gff, Gfc = build_blocks(branches, free_nodes, fixed_nodes)
-
 # Voltages of fixed nodes: V1=5.0, V4=0.0
 Vc = [5.0, 0.0]
 # Total currents at free nodes
 If = [0.0]
 
 # Solve for free voltages
-Vf = solve_free(Gff, Gfc, Vc, If)
+Vf = solve_free(branches, free_nodes, fixed_nodes, Vc, If)
 
 ###############################################
 # More complex example in Resistor Networks.jl#
@@ -52,14 +49,12 @@ branches = [
 free_nodes  = [2, 3, 4, 5]
 fixed_nodes = [1, 6]
 
-Gff, Gfc = build_blocks(branches, free_nodes, fixed_nodes)
-
 # Voltages of fixed nodes: V1=5.0, V6=0.0
 Vc = [5.0, 0.0]
 If = zeros(number_of_free_nodes)
 
 # Solve for free voltages
-Vf = solve_free(Gff, Gfc, Vc, If)
+Vf = solve_free(branches, free_nodes, fixed_nodes, Vc, If)
 
 ###################
 # Another example #
@@ -77,9 +72,7 @@ branches = [
 free_nodes  = [2, 4]
 fixed_nodes = [1, 3]
 
-Gff, Gfc = build_blocks(branches, free_nodes, fixed_nodes)
-
 Vc = [5.0, 0.0]
 If = zeros(number_of_free_nodes)
 
-Vf = solve_free(Gff, Gfc, Vc, If)
+Vf = solve_free(branches, free_nodes, fixed_nodes, Vc, If)

@@ -2,9 +2,12 @@ include("Scripts.jl")
 using Revise
 using Plots, LaTeXStrings, Graphs, GraphMakie
 
+########
+# y=ax #
+########
 number_of_free_nodes = 1
 
-# 1. Free Phase (y=ax)
+# 1. Free Phase 
 branches = [
     (1, 2, 2.0),
     (2, 3, 3.0)
@@ -14,6 +17,28 @@ free_nodes  = [2]
 fixed_nodes = [1, 3]
 Vc = [2.0, 3.0] # fixed node voltages (boundary conditions)
 If = zeros(number_of_free_nodes) # KCL rule at free nodes
+
+target_nodes = [2] # nodes to be clamped
+target_values = [2.5] # target voltages
+
+##########
+# y=ax+b #
+##########
+
+number_of_free_nodes = 2
+
+branches = [
+    (1, 2, 4.0),
+    (2, 3, 7.0),
+    (2, 4, 5.0),
+    (3, 4, 3.0),
+    (1, 4, 10.0),
+]
+free_nodes  = [2, 4]
+fixed_nodes = [1, 3]
+
+Vc = [5.0, 0.0]
+If = zeros(number_of_free_nodes)
 
 target_nodes = [2] # nodes to be clamped
 target_values = [2.5] # target voltages
