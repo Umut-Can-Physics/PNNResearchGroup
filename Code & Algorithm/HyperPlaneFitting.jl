@@ -6,9 +6,9 @@ using Plots, LaTeXStrings, Graphs, GraphMakie
 # GENERATING DATA #
 ###################
 
-training_size = 10
+training_size = 100
 σ = 0.1
-dim = 10 # dimesion of configuration space
+dim = 10 # dimesion of configuration space (number of fixed nodes)
 x_train, y_train = generate_tensor_data(σ, training_size, dim)
 
 ##############################
@@ -59,19 +59,29 @@ fixed_nodes = input_nodes
 
 If = zeros(length(free_nodes)) # KCL rule at free nodes
 
-target_nodes = free_nodes # nodes to be clamped 
+target_nodes = output_node # nodes to be clamped 
 
 gnew_list = []
 P_list = []
-iteration_size = 100
+iteration_size = 1000
 α = 1e-1 # learning rate
 η = 1 # clamping strength
 for step in 1:iteration_size
     rand_position = rand(1:dim)
-    target_value = y_train[rand_position] # target (output) voltages
+    target_values = y_train[rand_position] # target (output) voltages
     input_value = x_train[:,:, rand_position] # input voltages
     Vc = vec(input_value) # [V1 (input)]
-    C, P_hist, gnew = train_step!(branches, free_nodes, fixed_nodes, Vc, If, target_nodes, target_value; α, η) 
+    C, P_hist, gnew = train_step!(branches, free_nodes, fixed_nodes, Vc, If, target_nodes, target_values; α, η) 
     push!(gnew_list, gnew)
     push!(P_list, P_hist)
 end
+
+pred_outputs = []
+for xi in 1:dim
+    input_value = x_train[:,:,xi] 
+    Vc = vec(input_value) 
+    solved = solve_free(branches, free_nodes, fixed_nodes, Vc, If) # it use final conductances after training
+    push!(pred_outputs, solved[1]) # output voltage at node 2
+end
+
+y_train .- pred_outputs

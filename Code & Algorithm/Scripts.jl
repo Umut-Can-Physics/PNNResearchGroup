@@ -90,7 +90,7 @@ function full_voltage(free_nodes, fixed_nodes, Vf, Vc)
     for (n,v) in zip(fixed_nodes, Vc); V[n] = v; end
     return V
 end
-# Neden sadece free ve fixed node'ları alıyor? Hidden node'ların voltaj farkları zaten free node'ların içinde mi?
+# Sadece free ve fixed node'ları alıyorum, çünkü hidden node'ların voltaj farkları zaten free node'ların içinde.
 """
     branch_dV(branches, V)
 Compute voltage differences across branches.
@@ -102,10 +102,23 @@ Returns a vector of voltage differences corresponding to each branch in `branche
 """
 branch_dV(branches, V) = [V[i] - V[j] for (i,j,_) in branches] # Local voltage differences across branches (Main idea of the algorithm)
 
-function branch_dV(branches, V)
+function branch_dV2(branches, V)
+    ΔV_list = []
     for (i, j, _) in branches
-        
+        ΔV = vcat(values(V)...)[findall(x->x==i, vcat(keys(V)...))] - vcat(values(V)...)[findall(x->x==j, vcat(keys(V)...))]
+        push!(ΔV_list, ΔV)
     end
+    return vcat(ΔV_list...)
+end
+# Clean version of function branch_dV2
+function branch_dV3(branches, V::AbstractDict)
+    out = Vector{valtype(V)}(undef, length(branches))
+    @inbounds for (k, (i, j, _)) in enumerate(branches)
+        vi = get(V, i, nothing); vi === nothing && error("No voltage for node $i")
+        vj = get(V, j, nothing); vj === nothing && error("No voltage for node $j")
+        out[k] = vi - vj
+    end
+    out
 end
 
 """
@@ -186,8 +199,8 @@ function train_step!(branches, free_nodes, fixed_nodes, Vc, If, target_nodes, ta
     Vclamped = solve_clamped(branches, free_nodes, fixed_nodes, Vc, Vf, target_nodes, target_values, η)
 
     #differences (approximately equals back-propagation)
-    ΔVF = branch_dV(branches, Vfree) # voltage difference in free phase
-    ΔVC = branch_dV(branches, Vclamped) # voltage difference in clamped phase
+    ΔVF = branch_dV3(branches, Vfree) # voltage difference in free phase
+    ΔVC = branch_dV3(branches, Vclamped) # voltage difference in clamped phase
 
     #println("Voltage differences in free phase: ", ΔVF)
     #println("Voltage differences in clamped phase: ", ΔVC)
