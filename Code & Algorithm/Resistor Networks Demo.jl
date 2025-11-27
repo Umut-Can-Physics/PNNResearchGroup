@@ -1,7 +1,6 @@
 using Revise
 include("Scripts.jl")
 
-
 ###################
 # Example: 3 node #
 ###################
@@ -60,19 +59,94 @@ Vf = solve_free(branches, free_nodes, fixed_nodes, Vc, If)
 # Another example #
 ###################
 
-number_of_free_nodes = 2
+number_of_free_nodes = 3
 
 branches = [
-    (1, 2, 4.0),
-    (2, 3, 7.0),
-    (2, 4, 5.0),
-    (3, 4, 3.0),
-    (1, 4, 10.0),
-]
-free_nodes  = [2, 4]
-fixed_nodes = [1, 3]
+    (1, 2, 1.0),
+    (1, 3, 1.0),
 
-Vc = [5.0, 0.0]
+    (2, 3, 1.0),
+    (2, 4, 1.0),
+
+    (3, 4, 1.0),
+    (3, 5, 1.0),
+    (3, 6, 1.0),
+
+    (4, 6, 1.0),
+
+    (5, 6, 1.0)
+]
+
+free_nodes  = [2, 3, 6]
+fixed_nodes = [1, 4, 5]
+
+Vc = [1.0, 0.0, 1.0]
+If = zeros(number_of_free_nodes)
+
+Gff, Gfc = build_blocks(branches, free_nodes, fixed_nodes)
+
+Vf = solve_free(branches, free_nodes, fixed_nodes, Vc, If)
+
+################
+# CUBE NETWORK #
+################
+
+number_of_free_nodes = 6
+
+branches = [
+    (1, 2, 1.0),
+    (1, 4, 1.0),
+    (1, 5, 1.0),
+
+    (2, 3, 1.0),
+    (2, 6, 1.0),
+
+    (3, 4, 1.0),
+    (3, 7, 1.0),
+
+    (4, 8, 1.0),
+
+    (5, 6, 1.0),
+    (5, 8, 1.0),
+
+    (6, 7, 1.0),
+    
+    (7, 8, 1.0)
+]
+free_nodes  = [2, 3, 4, 5, 6, 8]
+fixed_nodes = [1, 7]
+
+# Voltages of fixed nodes: V1=0.0, V7=2.0
+Vc = [1.0, 0.0]
 If = zeros(number_of_free_nodes)
 
 Vf = solve_free(branches, free_nodes, fixed_nodes, Vc, If)
+
+# CHECK THE CUBE NETWORK
+Gff, Gfc = build_blocks(branches, free_nodes, fixed_nodes)
+Gff = Int.(Gff)
+
+G_free_free = [15 -5 0 0 -7 0;
+                -5 17 -7 0 0 0;
+                0 -7 17 0 0 -9;
+                0 0 0 11 -1 -2;
+                -7 0 0 -1 9 0;
+                0 0 -9 -2 0 12
+]
+
+issymmetric(G_free_free)
+
+G_free_fixed = [-3 0;
+                0 -5;
+                -1 0;
+                -8 0;
+                0 -1;
+                0 -1
+
+]
+
+V_fixed = [0.0; 2.0]
+
+Vf_check = inv(G_free_free) * (- G_free_fixed * V_fixed )
+
+Vf_check == Vf

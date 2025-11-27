@@ -137,9 +137,9 @@ Perform the clamped phase solution.
 function solve_clamped(branches, free_nodes, fixed_nodes, Vc, Vf, target_nodes, target_values, η)
     Vfree = full_voltage(free_nodes, fixed_nodes, Vf, Vc) # Get voltages in free phase
     VtC   = [Vfree[n] + η*(pt - Vfree[n]) for (n,pt) in zip(target_nodes, target_values)] # Equation (3)
-    for (n,pt) in zip(target_nodes, target_values)
-        println("Target value for node ", n, " is ", pt, "and voltage in free phase: ", Vfree[n], " | Clamped voltage: ", Vfree[n] + η*(pt - Vfree[n]))
-    end
+    #for (n,pt) in zip(target_nodes, target_values)
+    #    println("Target value for node ", n, " is ", pt, "and voltage in free phase: ", Vfree[n], " | Clamped voltage: ", Vfree[n] + η*(pt - Vfree[n]))
+    #end
   
     free2  = [n for n in free_nodes if !(n in target_nodes)] # remaining free nodes after clamping
     fixed2 = vcat(fixed_nodes, target_nodes) # set target nodes as temporary fixed nodes (add targets to fixed nodes)
@@ -166,7 +166,8 @@ function update_conductances!(branches, ΔVF, ΔVC; α=5e-4, η=1e-3, kmin=1e-6)
     for n in eachindex(branches) 
         i, j, g = branches[n] 
         Δg = (α/(2η)) * ((ΔVF[n]^2) - (ΔVC[n]^2)) # Equation (4)
-        gnew = g + Δg # gnew can't be negative
+        #gnew = g + Δg # gnew can't be negative
+        gnew = max(kmin, g + Δg)   # <-- clamp
         branches[n] = (i, j, gnew)
     end
     #println("Updated conductances: ", branches)
@@ -191,10 +192,10 @@ function train_step!(branches, free_nodes, fixed_nodes, Vc, If, target_nodes, ta
     Vf = solve_free(branches, free_nodes, fixed_nodes, Vc, If)
     Vfree = full_voltage(free_nodes, fixed_nodes, Vf, Vc)
 
-    println("\n Step 1: FREE PHASE \n")
-    println("Free voltages at free phase are solved: ", Vfree, "for a given boundary conditions Vc: ", Vc, "and initial conductances: ", [b[3] for b in branches])
+    #println("\n Step 1: FREE PHASE \n")
+    #println("Free voltages at free phase are solved: ", Vfree, "for a given boundary conditions Vc: ", Vc, "and initial conductances: ", [b[3] for b in branches])
 
-    println("\n Step 2: CLAMPED PHASE \n")
+    #println("\n Step 2: CLAMPED PHASE \n")
     # Clamped phase solution
     Vclamped = solve_clamped(branches, free_nodes, fixed_nodes, Vc, Vf, target_nodes, target_values, η)
 
@@ -203,7 +204,7 @@ function train_step!(branches, free_nodes, fixed_nodes, Vc, If, target_nodes, ta
     ΔVC = branch_dV3(branches, Vclamped) # voltage difference in clamped phase
 
     #println("Voltage differences in free phase: ", ΔVF)
-    #println("Voltage differences in clamped phase: ", ΔVC)
+    #println("Voltage differences in clamped phase: ", ΔVC) 
 
     # Update the conductances
     update_conductances!(branches, ΔVF, ΔVC; α, η)
@@ -244,7 +245,7 @@ function generate_training_data(slope, σ, bias, training_size)
     noise_vector = noise_vector .- mean(noise_vector)
     x = range(start = 0, stop = 20, length = training_size)
     y = sort(slope .* x) .+ noise_vector .+ bias
-    println("Standart Deviation of Data = ",std(noise_vector),"\n","Mean of the Noise = ", mean(noise_vector))
+    #println("Standart Deviation of Data = ",std(noise_vector),"\n","Mean of the Noise = ", mean(noise_vector))
     return x, y
 end
 
@@ -262,31 +263,106 @@ end
 Generate synthetic training data for hyperplane fitting in multiple dimensions.
 - `σ`: Standard deviation of Gaussian noise
 - `training_size`: Number of training samples
-- `dim`: Number of input dimensions in the parameter space
 """
-function generate_tensor_data(σ, training_size, dim)
+function generate_tensor_data(σ, training_size, num_of_inputs)
     # find multiple integers of training_size to reshape later
-    factors = find_factors(training_size)
+    factors = find_factors(num_of_inputs)
     selected_factor = factors[Int(ceil(length(factors)/2))] # choose the middle factor
-    reshaped_size = (selected_factor, div(training_size, selected_factor))
+    reshaped_size = (selected_factor, div(num_of_inputs, selected_factor))
 
     # random positive definite tensor with size (reshaped_size..., dim)
-    x_tensor = abs.(randn(reshaped_size..., dim))
+    x_tensor = abs.(randn(reshaped_size..., training_size))
 
     # coefficients vector for linear combination
-    coefficients = abs.(randn(dim))
+    coefficients = abs.(randn(training_size))
 
     # noise vector
-    noise_vector = abs.(randn(dim) .* σ)
+    noise_vector = abs.(randn(training_size) .* σ)
 
     # generate output tensor as follows y = ∑ x * coefficients + noise
-    output = zeros(dim)
-    for i in 1:dim
+    output = zeros(training_size)
+    for i in 1:training_size
         y_tensor = x_tensor[:,:,i] .* coefficients[i] .+ noise_vector[i]
         output[i] = sum(y_tensor)
     end
 
     return x_tensor, output
+end
+
+"""
+Generate tensor-based hyperplane regression data.
+Each sample is a tensor X[:,:,k] of size (H, W).
+Outputs follow:
+    y[k] = sum(A .* X[:,:,k]) + noise
+
+Arguments:
+- H, W           : tensor dimensions
+- training_size  : number of samples
+- σ              : noise standard deviation
+
+Returns:
+- X  : H × W × training_size tensor
+- y  : output vector (training_size)
+- A  : true weight tensor (H × W)
+"""
+function generate_tensor_hyperplane_data(H, W, training_size, InputRange; σ=0.1)
+
+    # true underlying weight tensor (same for all samples)
+    # choose weights such that summation is around order of 1 (normalizeation of the weights)
+    A = abs.(randn(H, W))
+    A ./= sum(A)
+    # Each pixel has a coefficient
+
+    # input tensor
+    X = abs.(rand(InputRange, H, W, training_size))
+    
+    # outputs
+    y = zeros(training_size)
+
+    # noise
+    noise = σ * randn(training_size)
+
+    for k in 1:training_size
+        y[k] = sum(A .* X[:,:,k])
+    end
+
+    y = y .+ abs.(noise) 
+
+    return X, y, A, abs.(noise)
+end
+
+using Random
+
+"""
+    generate_linear_dataset(D, N; σ = 0.0, rng = Random.GLOBAL_RNG)
+
+Generate a synthetic linear regression dataset:
+
+- D: input dimension (number of features)
+- N: number of samples (training_size)
+- σ: standard deviation of additive Gaussian noise on y (default 0.0)
+- rng: random number generator (optional)
+
+Returns:
+- X :: Matrix{Float64} of size (D, N)  -- each column is one sample x^(k)
+- y :: Vector{Float64} of length N     -- outputs
+- a :: Vector{Float64} of length D     -- ground-truth weights
+"""
+function generate_linear_dataset(D::Int, N::Int; σ::Float64 = 0.0, rng = Random.GLOBAL_RNG)
+
+    # Ground-truth weights (you can adjust the distribution if you like)
+    a = randn(rng, D)
+
+    # Inputs: each column is one sample
+    X = randn(rng, D, N)
+
+    # Outputs: y_k = a ⋅ x^(k) + noise
+    y = zeros(Float64, N)
+    for k in 1:N
+        y[k] = dot(a, X[:, k]) + (σ > 0 ? σ * randn(rng) : 0.0)
+    end
+
+    return X, y, a
 end
 
 
@@ -321,4 +397,47 @@ function generate_uniform_mesh(area_max)
     #end
 
     return P, x, y, cells, mesh
+end
+
+"""
+Select a random node from a triangular mesh
+- `all_nodes`: vector of all node indices
+"""
+randomly_pick_nodes(all_nodes) = all_nodes[rand(1:length(all_nodes))]
+
+"""
+Map a flattened input vector x_vec to fixed_nodes voltages.
+- fixed_nodes: vector of node indices used as inputs
+- x_vec      : vector of input values, same length as fixed_nodes
+Returns Dict{Int,Float64} with only fixed node voltages.
+"""
+function input_to_voltage_dict(fixed_nodes, x_vec)
+    @assert length(fixed_nodes) == length(x_vec)
+    V = Dict{Int,Float64}()
+    for (k, node) in enumerate(fixed_nodes)
+        V[node] = x_vec[k]
+    end
+    return V
+end
+
+function pick_nonadjacent_inputs(all_nodes, neighbors, output_node, num_inputs)
+    candidates = setdiff(all_nodes, [output_node])
+    candidates = collect(candidates)
+    shuffle!(candidates)
+
+    input_nodes = Int[]
+
+    for v in candidates
+        # v, mevcut input'lardan hiçbiriyle komşu olmasın
+        if all(u -> !(v in neighbors[u]), input_nodes)
+            push!(input_nodes, v)
+            length(input_nodes) == num_inputs && break
+        end
+    end
+
+    if length(input_nodes) < num_inputs
+        error("Input nodes selection failed: ")
+    end
+
+    return input_nodes
 end

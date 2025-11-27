@@ -8,5 +8,6 @@ using Plots
 # MESH GENERATING AND PLOTTING #
 ################################
 
-p, x, y , cells, mesh = generate_uniform_mesh()
+area_max = 0.01
+p, x, y , cells, mesh = generate_uniform_mesh(area_max)
 scatter(p, x, y, label="Nodes", markersize=1)
