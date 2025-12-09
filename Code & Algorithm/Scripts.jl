@@ -260,36 +260,6 @@ function find_factors(n)
 end
 
 """
-Generate synthetic training data for hyperplane fitting in multiple dimensions.
-- `σ`: Standard deviation of Gaussian noise
-- `training_size`: Number of training samples
-"""
-function generate_tensor_data(σ, training_size, num_of_inputs)
-    # find multiple integers of training_size to reshape later
-    factors = find_factors(num_of_inputs)
-    selected_factor = factors[Int(ceil(length(factors)/2))] # choose the middle factor
-    reshaped_size = (selected_factor, div(num_of_inputs, selected_factor))
-
-    # random positive definite tensor with size (reshaped_size..., dim)
-    x_tensor = abs.(randn(reshaped_size..., training_size))
-
-    # coefficients vector for linear combination
-    coefficients = abs.(randn(training_size))
-
-    # noise vector
-    noise_vector = abs.(randn(training_size) .* σ)
-
-    # generate output tensor as follows y = ∑ x * coefficients + noise
-    output = zeros(training_size)
-    for i in 1:training_size
-        y_tensor = x_tensor[:,:,i] .* coefficients[i] .+ noise_vector[i]
-        output[i] = sum(y_tensor)
-    end
-
-    return x_tensor, output
-end
-
-"""
 Generate tensor-based hyperplane regression data.
 Each sample is a tensor X[:,:,k] of size (H, W).
 Outputs follow:
@@ -305,7 +275,7 @@ Returns:
 - y  : output vector (training_size)
 - A  : true weight tensor (H × W)
 """
-function generate_tensor_hyperplane_data(H, W, training_size, InputRange; σ=0.1)
+function generate_tensor_hyperplane_data(H, W, training_size, InputRange; σ=0.1, bias=0.0)
 
     # true underlying weight tensor (same for all samples)
     # choose weights such that summation is around order of 1 (normalizeation of the weights)
@@ -314,57 +284,23 @@ function generate_tensor_hyperplane_data(H, W, training_size, InputRange; σ=0.1
     # Each pixel has a coefficient
 
     # input tensor
-    X = abs.(rand(InputRange, H, W, training_size))
+    X = abs.(rand(InputRange, H, W, training_size)) .+ bias
     
     # outputs
     y = zeros(training_size)
 
     # noise
-    noise = σ * randn(training_size)
+    noise = σ .* randn(training_size)
+    noise = noise .- mean(noise)
 
     for k in 1:training_size
         y[k] = sum(A .* X[:,:,k])
     end
 
-    y = y .+ abs.(noise) 
+    y = y .+ noise
 
-    return X, y, A, abs.(noise)
+    return X, y, A, noise
 end
-
-using Random
-
-"""
-    generate_linear_dataset(D, N; σ = 0.0, rng = Random.GLOBAL_RNG)
-
-Generate a synthetic linear regression dataset:
-
-- D: input dimension (number of features)
-- N: number of samples (training_size)
-- σ: standard deviation of additive Gaussian noise on y (default 0.0)
-- rng: random number generator (optional)
-
-Returns:
-- X :: Matrix{Float64} of size (D, N)  -- each column is one sample x^(k)
-- y :: Vector{Float64} of length N     -- outputs
-- a :: Vector{Float64} of length D     -- ground-truth weights
-"""
-function generate_linear_dataset(D::Int, N::Int; σ::Float64 = 0.0, rng = Random.GLOBAL_RNG)
-
-    # Ground-truth weights (you can adjust the distribution if you like)
-    a = randn(rng, D)
-
-    # Inputs: each column is one sample
-    X = randn(rng, D, N)
-
-    # Outputs: y_k = a ⋅ x^(k) + noise
-    y = zeros(Float64, N)
-    for k in 1:N
-        y[k] = dot(a, X[:, k]) + (σ > 0 ? σ * randn(rng) : 0.0)
-    end
-
-    return X, y, a
-end
-
 
 """
 Generate a uniform triangular mesh using TriangleMesh.jl and plot it.
