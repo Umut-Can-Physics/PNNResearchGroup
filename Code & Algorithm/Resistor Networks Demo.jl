@@ -1,5 +1,5 @@
 using Revise
-include("Scripts.jl")
+includet("Scripts.jl")
 
 ###################
 # Example: 3 node #

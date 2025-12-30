@@ -1,4 +1,4 @@
-include("Scripts.jl")
+includet("Scripts.jl")
 using TriangleMesh
 using Plots
 

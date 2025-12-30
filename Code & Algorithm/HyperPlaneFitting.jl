@@ -1,33 +1,27 @@
-include("Scripts.jl")
 using Revise, TriangleMesh, Random
 using Plots, LaTeXStrings, Graphs, GraphMakie
-
-# TO-DO:
-# - Add error messages to prevent wrong inputs and configurations
+includet("Scripts.jl")
 
 ################### 
 # GENERATING DATA #
 ###################
 
-# inputs form of a tensor #
 training_size = 1000 # number of training samples
-σ = 0.5
-bias = 0.1
+σ = 0.5 # standard deviation of noise added to outputs
+bias = 0.1 # bias term in hyperplane
 number_of_pixels = 2 # number of input dimensions
-InputRange = 0:0.001:10 # data range
-# generate training data with flattned outputs
-x_train, y_train, A, noise = generate_tensor_hyperplane_data(number_of_pixels, 1, training_size, InputRange; σ, bias)
+InputRange = 0:0.001:1 # data range (ıntensity values of pixels) 0=black, 1=white
+x_train, y_train, A, noise = generate_tensor_hyperplane_data(number_of_pixels, 1, training_size, InputRange; σ, bias) # generate training data with flattned outputs (number_of_pixels × 1)
 
 ##############################
 # GENERATING TRIANGULAR MESH #
 ##############################
 
-area_max = 0.05
-num_of_inputs = 2 + 1 + 1 # dimesion of configuration space (number of fixed nodes)
-# 1 bias and 1 ground node
-P_network, x, y, cells, mesh = generate_uniform_mesh(area_max)
-number_of_nodes = size(mesh.point_attribute, 2)
-if number_of_nodes < num_of_inputs + 1 # not enough nodes to fit a hyperplane
+area_max = 0.05 # maximum area of each triangle in the mesh
+num_of_inputs = 2 + 1 + 1 # dimesion of configuration space (number of fixed nodes) 1 bias + 1 ground node
+P_network, x, y, cells, mesh = generate_uniform_mesh(area_max) # generate triangular mesh
+number_of_nodes = size(mesh.point_attribute, 2) # number of nodes (vortex) in the mesh
+if number_of_nodes < num_of_inputs + 1 # not enough nodes to fit a hyperplane (+1 is output)
     error("Number of nodes in the mesh is less than number of input dimensions + 1. Please increase the mesh size.")
 end
 scatter!(P_network, x, y, label="Nodes", markersize=4, color = :gray)
@@ -112,6 +106,8 @@ for i in 1:length(branches)
 end
 P_conductances
 
+# Plot the learned conductances on the mesh as a graph
+
 function moving_average(x, window)
     n = length(x)
     y = similar(x)
@@ -135,6 +131,7 @@ for k in 1:training_size
     push!(pred_outputss_axis_1, x_train[:,:,k][1])
     push!(pred_outputss_axis_2, x_train[:,:,k][2])
 end
+
 pred_outputS = zeros(Float64, (length(pred_outputss_axis_1), length(pred_outputss_axis_2)))
 for xi in 1:training_size, xj in 1:training_size
     input_value = [pred_outputss_axis_1[xi],pred_outputss_axis_2[xj]]

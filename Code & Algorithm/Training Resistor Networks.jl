@@ -1,4 +1,4 @@
-include("Scripts.jl")
+includet("Scripts.jl")
 using Revise
 using Plots, LaTeXStrings, Graphs, GraphMakie
 
