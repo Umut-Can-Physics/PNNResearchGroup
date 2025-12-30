@@ -1,52 +1,105 @@
 include("Scripts.jl")
-using Revise, TriangleMesh, Random
-using Plots, LaTeXStrings, Graphs, GraphMakie
+using Revise, Random
+using Plots, LaTeXStrings
 
-# TO-DO:
-# - Add error messages to prevent wrong inputs and configurations
+# inputs form of a tensor #
+training_size = 1000 # number of training samples
+epoch_size = 100
+σ = 0.5 # noise standard deviation
+bias = 0.1
+number_of_pixels = 15 # number of input dimensions
+α = 1e-1 # learning rate
+η = 1e-1 # clamping strength
+area_max = 0.01 # max area for triangular mesh elements
+α/(2*η)
 
 ################### 
 # GENERATING DATA #
 ###################
 
-# inputs form of a tensor #
-training_size = 1000 # number of training samples
-σ = 0.5
-bias = 0.1
-number_of_pixels = 2 # number of input dimensions
+
 InputRange = 0:0.001:10 # data range
 # generate training data with flattned outputs
 x_train, y_train, A, noise = generate_tensor_hyperplane_data(number_of_pixels, 1, training_size, InputRange; σ, bias)
+
+
+
+
+using Triangulate
+using Random
+using Plots
 
 ##############################
 # GENERATING TRIANGULAR MESH #
 ##############################
 
-area_max = 0.05
-num_of_inputs = 2 + 1 + 1 # dimesion of configuration space (number of fixed nodes)
-# 1 bias and 1 ground node
-P_network, x, y, cells, mesh = generate_uniform_mesh(area_max)
-number_of_nodes = size(mesh.point_attribute, 2)
-if number_of_nodes < num_of_inputs + 1 # not enough nodes to fit a hyperplane
-    error("Number of nodes in the mesh is less than number of input dimensions + 1. Please increase the mesh size.")
+num_of_inputs = number_of_pixels + 1 + 1 
+
+# Helper to recreate your 'generate_uniform_mesh' using Triangulate.jl
+function generate_triangulate_mesh(area_max)
+    # Define a simple bounding box (0,0) to (1,1) for the mesh
+    # Triangulate requires points and segments to define the domain
+    nodes = [0.0 0.0; 1.0 0.0; 1.0 1.0; 0.0 1.0]'
+    segs = Int32[1 2; 2 3; 3 4; 4 1]'
+    
+    tin = TriangulateIO()
+    tin.pointlist = nodes
+    tin.segmentlist = segs
+    
+    # "p" for PSLG, "q" for quality, "a" for area constraint, "Q" for quiet
+    switches = "pqea$(area_max)Q"
+    (tout, vorout) = triangulate(switches, tin)
+    
+    # Extracting x, y for plotting
+    x = tout.pointlist[1, :]
+    y = tout.pointlist[2, :]
+    
+    # Create a base plot
+    P_network = plot(aspect_ratio=:equal)
+    
+    return P_network, x, y, tout
 end
-scatter!(P_network, x, y, label="Nodes", markersize=4, color = :gray)
+
+P_network, x, y, mesh = generate_triangulate_mesh(area_max)
+
+# In Triangulate.jl, point attributes are in pointattributelist
+# If no attributes were defined, we check the number of columns in pointlist
+number_of_nodes = size(mesh.pointlist, 2)
+
+if number_of_nodes < num_of_inputs + 1
+    error("Number of nodes in the mesh is less than number of input dimensions + 1.")
+end
+
+scatter!(P_network, x, y, label="Hidden Nodes", markersize=4, color = :gray)
 
 #####################################
 # EXTRACTING BRANCHES FROM THE MESH #
 #####################################
 
-# random conductances assigned to edges in the mesh
+# Triangulate.jl returns edges in 'edgelist' if requested, 
+# but usually we extract them from the triangle connectivity (trianglelist) 
+# or use the segmentlist for boundary edges.
 branches = []
-for e in eachcol(mesh.edge)
-    i, j = e # neighboring two nodes
-    g = rand() * 2.0 # random conductance between 0 and 2
-    push!(branches, (i, j, g))
+
+# If you specifically need all internal edges, it is safest to iterate 
+# through trianglelist. Here is the standard way to get unique edges:
+unique_edges = Set{Tuple{Int, Int}}()
+for col in 1:size(mesh.trianglelist, 2)
+    t = mesh.trianglelist[:, col]
+    # Triangles have 3 edges: (1,2), (2,3), (3,1)
+    for (a, b) in [(t[1], t[2]), (t[2], t[3]), (t[3], t[1])]
+        push!(unique_edges, a < b ? (a, b) : (b, a))
+    end
+end
+
+for (i, j) in unique_edges
+    g = rand() * 2.0 
+    push!(branches, (Int(i), Int(j), g))
 end
 
 # choose randomly input nodes, hidden nodes, output nodes
 all_nodes = collect(1:length(x))
-output_node = randomly_pick_nodes(all_nodes) # pick one output node
+output_node = rand(all_nodes) # Simplified pick
 
 # filter connections that ignore input-input edges
 neighbors = Dict(n => Set{Int}() for n in all_nodes)
@@ -55,22 +108,25 @@ for (i, j, _) in branches
     push!(neighbors[j], i)
 end
 
+# Using your provided function (ensure it is defined in your scope)
 input_nodes = pick_nonadjacent_inputs(all_nodes, neighbors, output_node, num_of_inputs)
 
 filtered_branches = []
-for (i,j,g) in branches
+for (i, j, g) in branches
     if (i in input_nodes) && (j in input_nodes)
-        continue   # skip input-input edges
+        continue   
     end
-    push!(filtered_branches, (i,j,g))
+    push!(filtered_branches, (i, j, g))
 end
 branches = filtered_branches
 
-num_of_fixed_nodes = num_of_inputs
-number_of_output_nodes = length([output_node])
+scatter!(P_network, x[input_nodes], y[input_nodes], color = :green, markersize=4, label="Input Nodes")
+scatter!(P_network, [x[output_node]], [y[output_node]], color = :blue, markersize=4, label="Output Node")
 
-scatter!(P_network, x[input_nodes], y[input_nodes], color = :green, markersize=8, label="Input Nodes")
-scatter!(P_network, [x[output_node]], [y[output_node]], color = :blue, markersize=8, label="Output Node")
+display(P_network)
+
+
+
 
 # In the free phase hidden and output nodes are free nodes (all nodes except input nodes)
 free_nodes = setdiff(all_nodes, input_nodes) # hidden + output nodes
@@ -82,27 +138,23 @@ target_nodes = [output_node] # nodes to be clamped (I've one output node here to
 
 gnew_list = []
 P_list = []
-iteration_size = 5000
-α = 1e-2 # learning rate
-η = 1e-4 # clamping strength
-α/(2*η)
-#= α = 1e-1 # learning rate
-η = 1e-1 # clamping strength =#
+
+random_ordered_indices = randperm(length(y_train))
+shuffle_ytrain = y_train[random_ordered_indices]
+shuffle_xtrain = x_train[:, :, random_ordered_indices]
+
 C_list = []
-for step in 1:iteration_size
-    println("\n=== Training Step: ", step, " ===")
-    # slelect a random training sample
-    rand_position = rand(1:training_size)
-    # input and outputs values for a randomly selected training sample
-    target_values = [y_train[rand_position]] # target (output) voltages
-    input_value = x_train[:,:, rand_position] # image pixel voltages
-    # boundary conditions are input voltages
-    Vc = vcat(input_value, [1.0, 0.0]) # adding bias and ground voltages
-    # Hangileri pixel input hangileri bias ve ground olduğu belirsiz, ancak önemli değil.
-    C, P_hist, gnew = train_step!(branches, free_nodes, fixed_nodes, Vc, If, target_nodes, target_values; α, η) 
-    push!(gnew_list, gnew)
-    push!(P_list, P_hist)
-    push!(C_list, C)
+for epoch in 1:epoch_size
+    println("\n=== Epoch Step: ", epoch, " ===")
+    for step in 1:length(y_train)
+        # boundary conditions are input voltages
+        Vc = vcat(shuffle_xtrain[:, :, step], [1.0, 0.0]) # adding bias and ground voltages
+        # Hangileri pixel input hangileri bias ve ground olduğu belirsiz, ancak önemli değil.
+        C, P_hist, gnew = train_step!(branches, free_nodes, fixed_nodes, Vc, If, target_nodes, [shuffle_ytrain[step]]; α, η) 
+        push!(gnew_list, gnew)
+        push!(P_list, P_hist)
+        push!(C_list, C)
+    end
 end
 
 ylabel = latexstring("Conductance  \$ [ \\Omega^{-1} ] \$")
@@ -110,7 +162,8 @@ P_conductances = plot(title="Training Size=$(training_size)", xlabel="Iteration"
 for i in 1:length(branches)
     plot!(P_conductances, map(g->g[i], gnew_list))
 end
-P_conductances
+
+#display(P_conductances)
 
 function moving_average(x, window)
     n = length(x)
@@ -126,84 +179,3 @@ smooth_cost = moving_average(C_list, 150)
 
 P_cost = plot(C_list, xlabel="Iteration", ylabel="Cost", title="Training cost", label="Instant cost", alpha=0.3)
 plot!(P_cost, smooth_cost, label="Moving avg", lw=2)
-
-# prediction for inputs that form of a tensor
-pred_outputss_axis_1 = []
-pred_outputss_axis_2 = []
-for k in 1:training_size
-    println("$(k) out of $(training_size)")
-    push!(pred_outputss_axis_1, x_train[:,:,k][1])
-    push!(pred_outputss_axis_2, x_train[:,:,k][2])
-end
-pred_outputS = zeros(Float64, (length(pred_outputss_axis_1), length(pred_outputss_axis_2)))
-for xi in 1:training_size, xj in 1:training_size
-    input_value = [pred_outputss_axis_1[xi],pred_outputss_axis_2[xj]]
-    Vc = vcat(input_value, [1.0, 0.0])
-    Vf = solve_free(branches, free_nodes, fixed_nodes, Vc, If) # it use final conductances after training
-    V  = full_voltage(free_nodes, fixed_nodes, Vf, Vc) 
-    pred_outputS[xj, xi] = V[output_node] 
-end
-# prediction for inputs that form of a tensor (alternative way)
-PredictedResults = []
-for k in 1:training_size
-    println("$(k) out of $(training_size)")
-    input_value = [pred_outputss_axis_1[k],pred_outputss_axis_2[k]]
-    Vc = vcat(input_value, [1.0, 0.0])
-    Vf = solve_free(branches, free_nodes, fixed_nodes, Vc, If) # it use final conductances after training
-    V  = full_voltage(free_nodes, fixed_nodes, Vf, Vc)
-    push!(PredictedResults, V[output_node])
-end
-
-##############################################################
-# TRUE VS PREDICTED PLANE PLOT for inputs that form a vector #
-##############################################################
-
-# Extract input coordinates from training data
-
-x1 = [pred_outputss_axis_1[i] for i in 1:training_size]
-x2 = [pred_outputss_axis_2[i] for i in 1:training_size]
-
-# Create a grid over the input domain
-xs = range(minimum(x1), maximum(x1), length=training_size)
-ys = range(minimum(x2), maximum(x2), length=training_size)
-
-z_true = y_train
-
-plotlyjs()
-gr()
-P_plane = scatter3d(
-    pred_outputss_axis_1, pred_outputss_axis_2, z_true;
-    alpha = 0.4,
-    xlabel = "x₁",
-    ylabel = "x₂",
-    zlabel = "y",
-    title = "True Plane vs Predicted Outputs",
-    label = "True plane",
-    camera = (0, 0),
-    marker = (:diamond, 2,:red)
-)
-
-# alternative way to overlay predicted outputs as points
-scatter3d!(
-    P_plane,
-    pred_outputss_axis_1, pred_outputss_axis_2, PredictedResults;
-    markersize = 4,
-    label = "Predicted outputs",
-    marker =(:star5, 2, :blue)
-)
-
-# Find a way to check the maximum error between true plane and predicted outputs
-# z_true noise olmadan data olmalı
-errors = abs.(z_true .- noise .- PredictedResults)
-mean_error = mean(errors)^2
-
-P_all = plot(
-    P_network,
-    P_conductances,
-    P_cost,
-    P_plane;
-    layout = (2, 2),
-    size   = (2000, 1100)  # adjust as you like
-)
-
-savefig(P_all, "figures/P_All.png")

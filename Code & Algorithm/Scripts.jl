@@ -308,7 +308,7 @@ Generate a uniform triangular mesh using TriangleMesh.jl and plot it.
 function generate_uniform_mesh(area_max)
     # uniform mesh (https://mathworld.wolfram.com/VoronoiDiagram.html)
     poly = polygon_Lshape()
-    mesh = create_mesh(poly, info_str="my mesh", voronoi=true, delaunay=true, add_switches = "qa$(area_max)")
+    mesh = create_mesh(poly, info_str="triangular mesh", voronoi=true, delaunay=true, add_switches = "qa$(area_max)")
 
     pts   = mesh.point      # 2 × n_point
     cells = mesh.cell       # 3 × n_cell  (indices of vertices)
