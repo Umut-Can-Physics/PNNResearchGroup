@@ -1,6 +1,4 @@
-using Revise
-using LinearAlgebra
-using Statistics
+using Revise, LinearAlgebra, Statistics
 
 # FREE PHASE SOLUTION
 
@@ -54,7 +52,7 @@ function build_blocks(branches, free_nodes, fixed_nodes)
         end
     end
 
-    return Gff, Gfc
+    return Gff, Gfc, free_pos
 end
 
 """
@@ -67,7 +65,7 @@ Solve for free node voltages: Vf = Gff / (If - Gfc * Vc)
 - `If`: vector of total current at free nodes
 """
 function solve_free(branches, free_nodes, fixed_nodes, Vc, If)
-    Gff, Gfc  = build_blocks(branches, free_nodes, fixed_nodes)
+    Gff, Gfc, free_pos = build_blocks(branches, free_nodes, fixed_nodes) 
     return Gff \ (If - Gfc * Vc) # Gff^-1 * (If - Gfc * Vc)
 end
 
@@ -100,16 +98,6 @@ Returns a vector of voltage differences corresponding to each branch in `branche
 - `branches`: list of tuples (i, j, g)
 - `V`: Dict{Int,Float64} mapping node index to voltage
 """
-branch_dV(branches, V) = [V[i] - V[j] for (i,j,_) in branches] # Local voltage differences across branches (Main idea of the algorithm)
-
-function branch_dV2(branches, V)
-    ΔV_list = []
-    for (i, j, _) in branches
-        ΔV = vcat(values(V)...)[findall(x->x==i, vcat(keys(V)...))] - vcat(values(V)...)[findall(x->x==j, vcat(keys(V)...))]
-        push!(ΔV_list, ΔV)
-    end
-    return vcat(ΔV_list...)
-end
 # Clean version of function branch_dV2
 function branch_dV3(branches, V::AbstractDict)
     out = Vector{valtype(V)}(undef, length(branches))
@@ -133,13 +121,14 @@ Perform the clamped phase solution.
 - `target_nodes`: vector of target node indices to be clamped
 - `target_values`: vector of target voltages for the target nodes
 - `η`: clamping strength
-"""
+""" 
 function solve_clamped(branches, free_nodes, fixed_nodes, Vc, Vf, target_nodes, target_values, η)
+
     Vfree = full_voltage(free_nodes, fixed_nodes, Vf, Vc) # Get voltages in free phase
+
     VtC   = [Vfree[n] + η*(pt - Vfree[n]) for (n,pt) in zip(target_nodes, target_values)] # Equation (3)
-    #for (n,pt) in zip(target_nodes, target_values)
-    #    println("Target value for node ", n, " is ", pt, "and voltage in free phase: ", Vfree[n], " | Clamped voltage: ", Vfree[n] + η*(pt - Vfree[n]))
-    #end
+
+    @debug "Clamped voltages for target nodes" only(VtC)
   
     free2  = [n for n in free_nodes if !(n in target_nodes)] # remaining free nodes after clamping
     fixed2 = vcat(fixed_nodes, target_nodes) # set target nodes as temporary fixed nodes (add targets to fixed nodes)
@@ -152,6 +141,7 @@ function solve_clamped(branches, free_nodes, fixed_nodes, Vc, Vf, target_nodes, 
 
     return full_voltage(free2, fixed2, Vf2, Vc2) # solved voltages in clamped phase
 end
+
 """
     update_conductances!(branches, ΔVF, ΔVC; α=5e-4, η=1e-3, kmin=1e-6)
 Update branch conductances in-place based on voltage differences.
@@ -190,14 +180,20 @@ function train_step!(branches, free_nodes, fixed_nodes, Vc, If, target_nodes, ta
 
     # Free phase solution
     Vf = solve_free(branches, free_nodes, fixed_nodes, Vc, If)
+
     Vfree = full_voltage(free_nodes, fixed_nodes, Vf, Vc)
 
-    #println("\n Step 1: FREE PHASE \n")
-    #println("Free voltages at free phase are solved: ", Vfree, "for a given boundary conditions Vc: ", Vc, "and initial conductances: ", [b[3] for b in branches])
-
-    #println("\n Step 2: CLAMPED PHASE \n")
+    v_out = Vfree
+    #[only(target_nodes)]
+    @debug "solved target voltage in free phase" v_out
+    
     # Clamped phase solution
+    # Solve clamped return full voltages in free phase
     Vclamped = solve_clamped(branches, free_nodes, fixed_nodes, Vc, Vf, target_nodes, target_values, η)
+
+    v_out_clamped = Vclamped
+    #[only(target_nodes)]
+    @debug "Solved target voltage in clamped phase" v_out_clamped
 
     #differences (approximately equals back-propagation)
     ΔVF = branch_dV3(branches, Vfree) # voltage difference in free phase

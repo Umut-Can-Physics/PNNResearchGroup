@@ -1,11 +1,11 @@
 include("Scripts.jl")
-using Revise, Random
+using Revise, Random, Logging
 using Plots, LaTeXStrings
 
 # inputs form of a tensor #
-training_size = 1000 # number of training samples
-epoch_size = 100
-σ = 0.5 # noise standard deviation
+training_size = 10 # number of training samples
+epoch_size = 5
+σ = 0 # noise standard deviation
 bias = 0.1
 number_of_pixels = 15 # number of input dimensions
 α = 1e-1 # learning rate
@@ -145,7 +145,7 @@ shuffle_xtrain = x_train[:, :, random_ordered_indices]
 
 C_list = []
 for epoch in 1:epoch_size
-    println("\n=== Epoch Step: ", epoch, " ===")
+    @info "Epoch start" epoch=epoch
     for step in 1:length(y_train)
         # boundary conditions are input voltages
         Vc = vcat(shuffle_xtrain[:, :, step], [1.0, 0.0]) # adding bias and ground voltages
@@ -156,6 +156,30 @@ for epoch in 1:epoch_size
         push!(C_list, C)
     end
 end
+
+DebugLogger = ConsoleLogger(stderr, Logging.Debug)
+
+with_logger(DebugLogger) do
+    C_list = []
+    for epoch in 1:epoch_size
+        @info "Epoch start" epoch=epoch
+
+        for step in 1:length(y_train)
+            Vc = vcat(shuffle_xtrain[:, :, step], [1.0, 0.0])
+
+            @info "Output prepared from data" shuffle_ytrain[step]
+
+            C, P_hist, gnew = train_step!(
+                branches, free_nodes, fixed_nodes, Vc, If, target_nodes,
+                [shuffle_ytrain[step]]; α, η
+            )
+
+            push!(gnew_list, gnew);push!(P_list, P_hist);push!(C_list, C)
+
+        end
+    end
+end
+
 
 ylabel = latexstring("Conductance  \$ [ \\Omega^{-1} ] \$")
 P_conductances = plot(title="Training Size=$(training_size)", xlabel="Iteration", ylabel=ylabel, legend=false)
