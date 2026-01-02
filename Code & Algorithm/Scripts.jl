@@ -373,3 +373,93 @@ function pick_nonadjacent_inputs(all_nodes, neighbors, output_node, num_inputs)
 
     return input_nodes
 end
+
+
+function generate_triangulate_mesh(area_max)
+    # Define a simple bounding box (0,0) to (1,1) for the mesh
+    # Triangulate requires points and segments to define the domain
+    nodes = [0.0 0.0; 1.0 0.0; 1.0 1.0; 0.0 1.0]'
+    segs = Int32[1 2; 2 3; 3 4; 4 1]'
+    
+    tin = TriangulateIO()
+    tin.pointlist = nodes
+    tin.segmentlist = segs
+    
+    # "p" for PSLG, "q" for quality, "a" for area constraint, "Q" for quiet
+    switches = "pqea$(area_max)Q"
+    (tout, vorout) = triangulate(switches, tin)
+    
+    # Extracting x, y for plotting
+    x = tout.pointlist[1, :]
+    y = tout.pointlist[2, :]
+    
+    # Create a base plot
+    P_network = plot(aspect_ratio=:equal)
+    
+    return P_network, x, y, tout
+end
+
+function extract_branches_from_mesh(mesh, x, num_of_inputs; gmax=2.0)
+    # num_of_inputs = d + 2  (features + bias + ground)
+
+    # 1) Unique edges from triangles
+    unique_edges = Set{Tuple{Int, Int}}()
+    for col in 1:size(mesh.trianglelist, 2)
+        t = mesh.trianglelist[:, col]
+        for (a, b) in [(t[1], t[2]), (t[2], t[3]), (t[3], t[1])]
+            push!(unique_edges, a < b ? (a, b) : (b, a))
+        end
+    end
+
+    branches = Vector{Tuple{Int,Int,Float64}}()
+    for (i, j) in unique_edges
+        g = rand() * gmax
+        push!(branches, (Int(i), Int(j), g))
+    end
+
+    all_nodes = collect(1:length(x))
+
+    # 2) Neighbor map
+    neighbors = Dict(n => Set{Int}() for n in all_nodes)
+    for (i, j, _) in branches
+        push!(neighbors[i], j)
+        push!(neighbors[j], i)
+    end
+
+    # 3) Pick output node (keep as you had, but you may want smarter choice later)
+    output_node = rand(all_nodes)
+
+    # 4) Pick input nodes (size = num_of_inputs)
+    input_nodes = pick_nonadjacent_inputs(all_nodes, neighbors, output_node, num_of_inputs)
+
+    # 5) Filter out input-input edges (optional but you were doing it)
+    filtered_branches = Tuple{Int,Int,Float64}[]
+    for (i, j, g) in branches
+        if (i in input_nodes) && (j in input_nodes)
+            continue
+        end
+        push!(filtered_branches, (i, j, g))
+    end
+    branches = filtered_branches
+
+    # 6) Split input_nodes into (feature_nodes, bias_node, ground_node)
+    # degree for each node
+    deg(n) = length(neighbors[n])
+
+    # choose ground as smallest degree among input_nodes
+    ground_node = argmin(n -> deg(n), input_nodes)
+
+    # choose bias as largest degree among remaining
+    remaining = setdiff(input_nodes, [ground_node])
+    bias_node = argmax(n -> deg(n), remaining)
+
+    feature_nodes = collect(setdiff(input_nodes, [ground_node, bias_node]))
+
+    @info "Total nodes: $(length(all_nodes))"
+    @info "Output node: $output_node"
+    @info "Feature nodes: $(length(feature_nodes))"
+    @info "Bias node: $bias_node"
+    @info "Ground node: $ground_node"
+
+    return branches, feature_nodes, bias_node, ground_node, output_node, all_nodes
+end
