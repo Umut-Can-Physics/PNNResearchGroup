@@ -267,19 +267,19 @@ plot(CList, xlabel="Epoch", ylabel="MSE (Cost)", title="Plane Regression Trainin
 
 # Hyper-plane fitting 
 
-using Revise, Plots, Random, Triangulate
+using Revise, Plots, Random, Triangulate, ProgressMeter
 include("Scripts.jl")
 
 Vbias = 5.0
 Vgnd  = 0.0
 
-d = 5
+d = 784
 N = 200
 w_true = rand(d)
 w_true ./= sum(w_true)
 b_true = 0.3
 
-X = rand(0:0.0001:1, N, d)
+X = rand(0:0.01:2, N, d)
 Z = X*w_true .+ b_true
 
 fixed_voltages = [maximum([vcat(X...); Vbias; Vgnd]), minimum([vcat(X...); Vbias; Vgnd])]
@@ -292,7 +292,7 @@ catch e
 end
 
 num_of_inputs = d + 1 + 1 # pixels + bias + ground
-area_max = 0.01
+area_max = 0.0001
 
 P_network, x, y, mesh = generate_triangulate_mesh(area_max)
 
@@ -311,15 +311,29 @@ scatter!(P_network, [x[output_node]], [y[output_node]], color = :blue, markersiz
 scatter!(P_network, [x[bias_node]], [y[bias_node]], color = :black, markersize=4, label="Bias Node")
 scatter!(P_network, [x[ground_node]], [y[ground_node]], color = :red, markersize=4, label="Ground Node")
 
+branches_before = deepcopy(branches)
+
 fixed_nodes = vcat(feature_nodes, [bias_node, ground_node])
 free_nodes  = setdiff(all_nodes, fixed_nodes)
+
+P_before = plot(aspect_ratio=:equal, legend=:outertopleft)
+plot_conductances!(P_before, branches, x, y; edge_color=:black)
+plot_nodes!(
+    P_before,
+    x, y;
+    feature_nodes = feature_nodes,
+    bias_node     = bias_node,
+    ground_node   = ground_node,
+    output_node   = output_node,
+    free_nodes    = free_nodes,
+)
 
 number_of_free_nodes = length(free_nodes)
 If = zeros(number_of_free_nodes)
 
-epoch_size = 1000
-α  = 1e-4
-η  = 1e-3
+epoch_size = 10
+α  = 1e-1
+η  = 1e-1
 
 CList = Float64[]
 
@@ -339,18 +353,18 @@ catch e
     error("Node selection sanity check failed. Please check the node assignments.")
 end
 
-for epoch in 1:epoch_size
+@showprogress for epoch in 1:epoch_size
     perm = randperm(N)
     C_epoch = 0.0
 
     for k in perm
         xfeat = X[k, :]                 # length 20
-        y     = Z[k]                    # scalar target
+        Y     = Z[k]                    # scalar target
 
         Vc = vcat(xfeat, [Vbias, Vgnd]) # fixed_nodes order must match!
         C, yhat = train_step!(
             branches, free_nodes, fixed_nodes, Vc, If,
-            output_node, y; α=α, η=η
+            output_node, Y; α=α, η=η
         )
 
         C_epoch += C
@@ -359,4 +373,34 @@ for epoch in 1:epoch_size
     push!(CList, C_epoch/N) # MSE
 end
 
-plot(CList, xlabel="Epoch", ylabel="MSE", legend=false)
+branches_after = deepcopy(branches)
+
+C_plot = plot(CList, xlabel="Epoch", ylabel="MSE", legend=false)
+
+P_delta = plot(
+    aspect_ratio = :equal,
+    legend = :outertopleft,
+)
+
+plot_conductance_change!(
+    P_delta,
+    branches_before,
+    branches,
+    x, y;
+    lw_min=0.5,
+    lw_max=8.0,
+    alpha=0.5
+)
+
+# Node'ları net biçimde ekle
+plot_nodes!(
+    P_delta,
+    x, y;
+    feature_nodes = feature_nodes,
+    bias_node     = bias_node,
+    ground_node   = ground_node,
+    output_node   = output_node,
+    free_nodes    = free_nodes,
+)
+
+plot(P_network, C_plot, P_before, P_delta, layout = (2,2), size=(1000,600)) 

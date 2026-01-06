@@ -374,6 +374,27 @@ function pick_nonadjacent_inputs(all_nodes, neighbors, output_node, num_inputs)
     return input_nodes
 end
 
+function pick_nonadjacent_inputs_degree_greedy(all_nodes, neighbors, output_node, num_inputs)
+    candidates = setdiff(all_nodes, [output_node])
+
+    # düşük dereceyi önce dene
+    sort!(candidates, by = n -> length(neighbors[n]))
+
+    chosen = Int[]
+    blocked = Set{Int}()  # seçilenlerin komşuları + kendileri
+
+    for v in candidates
+        if !(v in blocked)
+            push!(chosen, v)
+            push!(blocked, v)
+            union!(blocked, neighbors[v])  # komşuları blokla
+            length(chosen) == num_inputs && return chosen
+        end
+    end
+
+    error("Input nodes selection failed: picked $(length(chosen)) / $num_inputs")
+end
+
 
 function generate_triangulate_mesh(area_max)
     # Define a simple bounding box (0,0) to (1,1) for the mesh
@@ -413,7 +434,7 @@ function extract_branches_from_mesh(mesh, x, num_of_inputs; gmax=2.0)
 
     branches = Vector{Tuple{Int,Int,Float64}}()
     for (i, j) in unique_edges
-        g = rand() * gmax
+        g = 1 * gmax
         push!(branches, (Int(i), Int(j), g))
     end
 
@@ -430,7 +451,7 @@ function extract_branches_from_mesh(mesh, x, num_of_inputs; gmax=2.0)
     output_node = rand(all_nodes)
 
     # 4) Pick input nodes (size = num_of_inputs)
-    input_nodes = pick_nonadjacent_inputs(all_nodes, neighbors, output_node, num_of_inputs)
+    input_nodes = pick_nonadjacent_inputs_degree_greedy(all_nodes, neighbors, output_node, num_of_inputs)
 
     # 5) Filter out input-input edges (optional but you were doing it)
     filtered_branches = Tuple{Int,Int,Float64}[]
@@ -462,4 +483,133 @@ function extract_branches_from_mesh(mesh, x, num_of_inputs; gmax=2.0)
     @info "Ground node: $ground_node"
 
     return branches, feature_nodes, bias_node, ground_node, output_node, all_nodes
+end
+
+"""
+    plot_conductances!(plt, branches, x, y;
+                       lw_min=0.3, lw_max=6.0, logscale=true,
+                       label_edges=false, label_every=1, label_fs=6,
+                       edge_alpha=0.65,
+                       edge_color=:black)
+
+branches: Vector{Tuple{Int,Int,Float64}}  (i,j,g)
+x,y: node coordinates (index = node id)
+"""
+function plot_conductances!(plt, branches, x, y;
+    edge_color=:black     
+)
+    for (eidx, (i,j,g)) in enumerate(branches)
+
+        plot!(
+            plt,
+            [x[i], x[j]],
+            [y[i], y[j]];
+            color = edge_color,   
+            label = false
+        )
+    end
+
+    return plt
+end
+
+
+"""
+    plot_conductance_change!(plt, branches_before, branches_after, x, y;
+                             lw_min=0.4, lw_max=7.0,
+                             alpha=0.8)
+
+- Blue  : g_after > g_before
+- Red: g_after < g_before
+- Edge width proportional to |Δg|
+"""
+function plot_conductance_change!(
+    plt,
+    branches_before,
+    branches_after,
+    x, y;
+    lw_min=0.4,
+    lw_max=7.0,
+    alpha=0.8
+)
+
+    @assert length(branches_before) == length(branches_after)
+
+    Δg = [branches_after[k][3] - branches_before[k][3]
+          for k in eachindex(branches_before)]
+
+    Δg_abs = abs.(Δg)
+    Δg_max = maximum(Δg_abs) + eps()
+
+    for k in eachindex(branches_before)
+        i, j, _ = branches_before[k]
+        dgi = Δg[k]
+
+        col = dgi ≥ 0 ? :blue : :red
+
+        t  = abs(dgi) / Δg_max
+        lw = lw_min + t * (lw_max - lw_min)
+
+        plot!(
+            plt,
+            [x[i], x[j]], [y[i], y[j]];
+            lw=lw,
+            color=col,
+            alpha=alpha,
+            label=false
+        )
+    end
+
+    return plt
+end
+
+"""
+    plot_nodes!(plt, x, y;
+    feature_nodes::Vector{Int},
+    bias_node::Int,
+    ground_node::Int,
+    output_node::Int,
+    free_nodes::Vector{Int},
+    show_ids::Bool=true,
+    id_fs::Int=7
+)
+- feature_nodes: input nodes (Vector{Int})
+- bias_node, ground_node, output_node: Int
+- free_nodes: Vector{Int} (hidden + output vs.)
+"""
+function plot_nodes!(plt, x, y;
+    feature_nodes::Vector{Int},
+    bias_node::Int,
+    ground_node::Int,
+    output_node::Int,
+    free_nodes::Vector{Int},
+)
+    # Hidden = free - output
+    hidden_nodes = setdiff(free_nodes, [output_node])
+
+    # 1) Hidden
+    scatter!(plt, x[hidden_nodes], y[hidden_nodes];
+        ms=4, marker=:circle, color=:gray, alpha=0.8, label="Hidden",
+        markerstrokewidth=0.6, markerstrokecolor=:black)
+
+    # 2) Inputs
+    scatter!(plt, x[feature_nodes], y[feature_nodes];
+        ms=5, marker=:utriangle, color=:green, alpha=0.95, label="Inputs",
+        markerstrokewidth=0.8, markerstrokecolor=:black)
+
+    # 3) Bias
+    scatter!(plt, [x[bias_node]], [y[bias_node]];
+        ms=7, marker=:diamond, color=:black, label="Bias",
+        markerstrokewidth=0.8, markerstrokecolor=:white)
+
+    # 4) Ground
+    scatter!(plt, [x[ground_node]], [y[ground_node]];
+        ms=7, marker=:hexagon, color=:red, label="Ground",
+        markerstrokewidth=0.8, markerstrokecolor=:black)
+
+    # 5) Output
+    scatter!(plt, [x[output_node]], [y[output_node]];
+        ms=8, marker=:star5, color=:blue, label="Output",
+        markerstrokewidth=0.8, markerstrokecolor=:black)
+
+    return plt
 end
