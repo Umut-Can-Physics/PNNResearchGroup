@@ -1,11 +1,10 @@
-![plot](./figures/MainFig.png)
-
-### This repository enables team members to contribute and track development in one place.
-
-Requirements
-  [b964fa9f] LaTeXStrings v1.4.0
-  [91a5bcdd] Plots v1.41.4
-  [92933f4c] ProgressMeter v1.11.0
-  [295af30f] Revise v3.13.1
-  [f7e6ffb2] Triangulate v3.0.0
-  [37e2e46d] LinearAlgebra v1.12.0
+Requirements for stable version
+<ol>
+  <li>Julia 1.12.4 (2026-01-06)</li>
+  <li>LaTeXStrings v1.4.0</li>
+  <li>Plots v1.41.4</li>
+  <li>ProgressMeter v1.11.0</li>
+  <li>Revise v3.13.1</li>
+  <li>Triangulate v3.0.0</li>
+  <li>LinearAlgebra v1.12.0</li>
+</ol>
